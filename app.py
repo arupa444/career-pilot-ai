@@ -179,5 +179,4 @@ async def search_jobs_get(
 ENABLE_API_KEY_AUTH = get_env_bool("ENABLE_API_KEY_AUTH", default=True)
 if not ENABLE_API_KEY_AUTH:
     import warnings
-
     warnings.warn("API key authentication is disabled. Set ENABLE_API_KEY_AUTH=true to enable.")
