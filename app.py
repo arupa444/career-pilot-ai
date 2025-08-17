@@ -55,7 +55,7 @@ class JobResponse(BaseModel):
 
 @app.get("/", tags=["Info"])
 def read_root():
-    return {"message": "Welcome to JobSpy Docker API! Go to /docs for the API documentation."}
+    return {"message": "Welcome To job searching world..."}
 
 
 @app.post("/search_jobs", response_model=JobResponse, tags=["Jobs"])
