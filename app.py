@@ -10,6 +10,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
+
 SUPPORTED_SITES = ["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"]
 
 
