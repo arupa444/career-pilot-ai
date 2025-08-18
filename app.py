@@ -3,10 +3,9 @@ from typing import List, Optional, Union, Dict, Any
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel, Field
 from jobspy import scrape_jobs
-import pandas as pd
 
 app = FastAPI(
-    title="JobSpy Docker API",
+    title="JobSpy API",
     description="API for searching jobs across multiple platforms using JobSpy",
     version="1.0.0",
 )
