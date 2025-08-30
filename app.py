@@ -8,7 +8,13 @@ from pydantic import BaseModel, Field
 import io
 import pandas as pd
 from jobspy import scrape_jobs
+from bs4 import BeautifulSoup
+import requests
+import time
 
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+}
 # Optional: import when available; keep a clear error if not installed
 
 app = FastAPI(
@@ -122,6 +128,27 @@ def _parse_common_params(
         "distance": distance,
         "sort_by": sort_by,
     }
+# scrap linkedin...
+def extract_description(unique_jobs):
+    description = []
+    for job in unique_jobs:
+        url = job["job_url"]
+        response = requests.get(url, headers=headers)
+
+        # Parse the HTML
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Find the job details section by ID
+        job_details = soup.find('div', class_='description__text description__text--rich')
+
+        if job_details:
+            description.append(job_details.prettify())
+        else:
+            description.append("Job details section not found. The page structure might have changed.")
+
+        time.sleep(2)
+
+    return  description
 
 
 # ---------- UI ROUTES ----------
@@ -190,9 +217,10 @@ async def search_jobs_endpoint(
             elif sort_by == "salary":
                 unique_jobs.sort(key=lambda x: x.get("salary") or "", reverse=True)
 
-        for i in unique_jobs:
-            if i['site'] == "linkedin":
-                print(i['description'])
+        if len(unique_jobs):
+            description = extract_description(unique_jobs)
+            for i in description:
+                print(i, end="\n")
 
         return templates.TemplateResponse("index.html", {
             "request": request,
