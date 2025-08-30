@@ -132,21 +132,25 @@ def _parse_common_params(
 def extract_description(unique_jobs):
     description = []
     for job in unique_jobs:
-        url = job["job_url"]
-        response = requests.get(url, headers=headers)
+        if job["site"] == "linkedin":
+            url = job["job_url"]
+            response = requests.get(url, headers=headers)
 
-        # Parse the HTML
-        soup = BeautifulSoup(response.text, 'html.parser')
+            # Parse the HTML
+            soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Find the job details section by ID
-        job_details = soup.find('div', class_='description__text description__text--rich')
+            # Find the job details section by ID
+            job_details = soup.find('div', class_='description__text description__text--rich')
 
-        if job_details:
-            description.append(job_details.prettify())
+            if job_details:
+                description.append(job_details.prettify())
+            else:
+                description.append("Job details section not found. The page structure might have changed.")
+            time.sleep(2)
         else:
-            description.append("Job details section not found. The page structure might have changed.")
+            description.append("Job details section Can't be fetched. The page can't be accessable.")
 
-        time.sleep(2)
+
 
     return  description
 
