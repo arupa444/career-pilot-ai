@@ -1,0 +1,163 @@
+{% extends "universalLayout.html" %}
+{% block content %}
+
+{% set v = values or {} %}
+  {% if error %}
+  <div class="alert alert-danger">{{ error }}</div>
+  {% endif %}
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+      <div class="p-3 form-section shadow-sm">
+        <form method="post" action="/search" id="searchForm">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Keywords</label>
+            <input type="text" name="search_term" class="form-control" placeholder="e.g., Data Scientist, React, Python"
+                   value="{{ v.search_term or '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Location</label>
+            <input type="text" name="location" class="form-control" placeholder="City, State or 'Remote'"
+                   value="{{ v.location or '' }}">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Sites</label>
+            <div class="row">
+              {% for s in sites %}
+              <div class="col-6">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="{{ s }}" name="site_name"
+                         id="site_{{ s }}" {% if v.site_name and (s in v.site_name) %}checked{% endif %}>
+                  <label class="form-check-label text-capitalize" for="site_{{ s }}">{{ s.replace('_',' ') }}</label>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Job Type</label>
+            <div class="row">
+              {% for jt in job_types %}
+              <div class="col-6">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="{{ jt }}" name="job_type"
+                         id="jt_{{ jt }}" {% if v.job_type and (jt in v.job_type) %}checked{% endif %}>
+                  <label class="form-check-label text-capitalize" for="jt_{{ jt }}">{{ jt }}</label>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Results Wanted</label>
+            <input type="range" class="form-range" min="10" max="300" step="10" name="results_wanted"
+                   value="{{ v.results_wanted or 50 }}" oninput="rwOut.value = this.value">
+            <div class="d-flex justify-content-between">
+              <small>10</small><small>300</small>
+            </div>
+            <div class="text-end"><output id="rwOut">{{ v.results_wanted or 50 }}</output></div>
+          </div>
+
+          <div class="row mb-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Hours Old</label>
+              <input type="range" class="form-range" min="1" max="720" step="1" name="hours_old"
+                     value="{{ v.hours_old or 72 }}" oninput="hoOut.value = this.value">
+              <div class="d-flex justify-content-between">
+                <small>1</small><small>720</small>
+              </div>
+              <div class="text-end"><output id="hoOut">{{ v.hours_old or 72 }}</output> <small>hours</small></div>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Distance</label>
+              <input type="range" class="form-range" min="1" max="200" step="1" name="distance"
+                     value="{{ v.distance or 25 }}" oninput="distOut.value = this.value">
+              <div class="d-flex justify-content-between">
+                <small>1</small><small>200</small>
+              </div>
+              <div class="text-end"><output id="distOut">{{ v.distance or 25 }}</output></div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Sort By</label>
+            <select class="form-select" name="sort_by">
+              {% for opt in ["date_posted","title","company","salary"] %}
+              <option value="{{ opt }}" {% if v.sort_by == opt %}selected{% endif %}>{{ opt.replace('_',' ').title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="d-grid gap-2">
+            <button type="submit" class="btn btn-primary btn-lg">Search Jobs</button>
+          </div>
+        </form>
+      </div>
+      {% if count and count > 0 %}
+      <div class="p-3 mt-3 form-section shadow-sm">
+        <div class="d-grid gap-2">
+          <a class="btn btn-outline-primary" href="/export?format=csv&search_term={{ v.search_term }}&location={{ v.location }}{% for s in v.site_name or [] %}&site_name={{ s }}{% endfor %}{% for jt in v.job_type or [] %}&job_type={{ jt }}{% endfor %}&results_wanted={{ v.results_wanted }}&hours_old={{ v.hours_old }}&distance={{ v.distance }}">Download CSV</a>
+          <a class="btn btn-outline-secondary" href="/export?format=json&search_term={{ v.search_term }}&location={{ v.location }}{% for s in v.site_name or [] %}&site_name={{ s }}{% endfor %}{% for jt in v.job_type or [] %}&job_type={{ jt }}{% endfor %}&results_wanted={{ v.results_wanted }}&hours_old={{ v.hours_old }}&distance={{ v.distance }}" target="_blank">View JSON</a>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="col-lg-8">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h5 class="mb-0">Results{% if count %} <span class="text-secondary">({{ count }})</span>{% endif %}</h5>
+      </div>
+
+      {% if jobs and jobs|length > 0 %}
+        <div class="row g-3">
+          {% for j in jobs %}
+          <div class="col-12">
+            <div class="card card-job shadow-sm">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <h5 class="card-title mb-1">{{ j.title or "Untitled role" }}</h5>
+                    <div class="text-secondary">{{ j.company or "Unknown company" }}</div>
+                  </div>
+                  {% if j.via or j.site_name %}
+                  <span class="badge text-bg-light badge-site">{{ (j.via or j.site_name) | default('') }}</span>
+                  {% endif %}
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-3 small text-secondary">
+                  {% if j.location %}<span>📍 {{ j.location }}</span>{% endif %}
+                  {% if j.date_posted %}<span>🗓️ {{ j.date_posted }}</span>{% endif %}
+                  {% if j.job_type %}<span>💼 {{ j.job_type }}</span>{% endif %}
+                  {% if j.salary or j.min_salary %}
+                    <span>💰 {{ j.salary or (j.min_salary ~ "–" ~ j.max_salary ~ " " ~ (j.currency or "")) }}</span>
+                  {% endif %}
+                </div>
+                {% if j.description %}
+                <p class="mt-3 mb-0 desc">{{ j.description }}</p>
+                {% endif %}
+                <div class="mt-3 d-flex gap-2">
+                  {% if j.apply_url %}
+                  <a class="btn btn-success" href="{{ j.apply_url }}" target="_blank" rel="noopener">Apply</a>
+                  {% elif j.job_url or j.url %}
+                  <a class="btn btn-success" href="{{ j.job_url or j.url }}" target="_blank" rel="noopener">Apply</a>
+                  {% endif %}
+                  {% if j.job_url or j.url %}
+                  <a class="btn btn-outline-secondary" href="{{ j.job_url or j.url }}" target="_blank" rel="noopener">View</a>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-secondary py-5 text-center border rounded">
+          <p class="mb-0">No results yet. Fill the form and hit <span class="fw-semibold">Search Jobs</span>.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

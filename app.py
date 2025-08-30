@@ -1,182 +1,285 @@
 import os
-from typing import List, Optional, Union, Dict, Any
-from fastapi import FastAPI, Query, HTTPException
+from typing import List, Optional, Dict, Any
+from fastapi import FastAPI, Request, Form, Query, Depends, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+import io
+import pandas as pd
 from jobspy import scrape_jobs
 
+# Optional: import when available; keep a clear error if not installed
+
 app = FastAPI(
-    title="JobSpy API",
-    description="API for searching jobs across multiple platforms using JobSpy",
-    version="1.0.0",
+    title="Career Pilot Ai",
+    description="Beautiful, user-friendly UI and API on top of JobSpy job search",
+    version="2.0.0",
 )
 
-
+# ---------- Config ----------
 SUPPORTED_SITES = ["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"]
+JOB_TYPES = ["fulltime", "parttime", "contract", "internship", "temporary", "volunteer", "apprenticeship"]
+DEFAULT_RESULTS = 50
 
-
-def get_env_bool(var_name, default=True):
-    val = os.getenv(var_name)
+# API key auth (optional)
+def get_env_bool(key: str, default: bool = False) -> bool:
+    val = os.getenv(key)
     if val is None:
         return default
-    return str(val).lower() in ("1", "true", "yes", "on")
+    return val.lower() in ("1", "true", "yes", "on")
+
+ENABLE_API_KEY_AUTH = get_env_bool("ENABLE_API_KEY_AUTH", default=False)
+API_KEY = os.getenv("API_KEY", "")
+
+def require_api_key(x_api_key: Optional[str] = Query(None, alias="api_key")):
+    if not ENABLE_API_KEY_AUTH:
+        return True
+    if not x_api_key or x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return True
+
+# ---------- Mount static & templates ----------
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 
-class JobSearchParams(BaseModel):
-    site_name: Union[List[str], str] = Field(
-        default=["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"],
-        description="Job sites to search on",
-    )
-    search_term: Optional[str] = Field(default=None, description="Job search term")
-    google_search_term: Optional[str] = Field(default=None, description="Search term for Google jobs")
-    location: Optional[str] = Field(default=None, description="Job location")
-    distance: Optional[int] = Field(default=50, description="Distance in miles")
-    job_type: Optional[str] = Field(default=None, description="Job type (fulltime, parttime, internship, contract)")
-    proxies: Optional[List[str]] = Field(default=None,
-                                         description="Proxies in format ['user:pass@host:port', 'localhost']")
-    is_remote: Optional[bool] = Field(default=None, description="Remote job filter")
-    results_wanted: Optional[int] = Field(default=20, description="Number of results per site")
-    hours_old: Optional[int] = Field(default=None, description="Filter by hours since posting")
-    easy_apply: Optional[bool] = Field(default=None, description="Filter for easy apply jobs")
-    description_format: Optional[str] = Field(default="markdown", description="Format of job description")
-    offset: Optional[int] = Field(default=0, description="Offset for pagination")
-    verbose: Optional[int] = Field(default=2,
-                                   description="Controls verbosity (0: errors only, 1: errors+warnings, 2: all logs)")
-    linkedin_fetch_description: Optional[bool] = Field(default=False, description="Fetch full LinkedIn descriptions")
-    linkedin_company_ids: Optional[List[int]] = Field(default=None, description="LinkedIn company IDs to filter by")
-    country_indeed: Optional[str] = Field(default=None, description="Country filter for Indeed & Glassdoor")
-    enforce_annual_salary: Optional[bool] = Field(default=False, description="Convert wages to annual salary")
-    ca_cert: Optional[str] = Field(default=None, description="Path to CA Certificate file for proxies")
-
-
-class JobResponse(BaseModel):
-    count: int
-    jobs: List[Dict[str, Any]]
-
-
-@app.get("/", tags=["Info"])
-def read_root():
-    return {"message": "Welcome To job searching world..."}
-
-
-@app.post("/search_jobs", response_model=JobResponse, tags=["Jobs"])
-def search_jobs(params: JobSearchParams):
+# ---------- Helpers ----------
+def _safe_int(v: Optional[str], default: Optional[int]) -> Optional[int]:
     try:
-        jobs_df = scrape_jobs(
-            site_name=params.site_name,
-            search_term=params.search_term,
-            google_search_term=params.google_search_term,
-            location=params.location,
-            distance=params.distance,
-            job_type=params.job_type,
-            proxies=params.proxies,
-            is_remote=params.is_remote,
-            results_wanted=params.results_wanted,
-            hours_old=params.hours_old,
-            easy_apply=params.easy_apply,
-            description_format=params.description_format,
-            offset=params.offset,
-            verbose=params.verbose,
-            linkedin_fetch_description=params.linkedin_fetch_description,
-            linkedin_company_ids=params.linkedin_company_ids,
-            country_indeed=params.country_indeed,
-            enforce_annual_salary=params.enforce_annual_salary,
-            ca_cert=params.ca_cert,
-        )
+        if v is None or v == "":
+            return default
+        return int(v)
+    except:
+        return default
 
-        # Convert DataFrame to dictionary format
-        jobs_list = jobs_df.to_dict('records')
+def _safe_float(v: Optional[str], default: Optional[float]) -> Optional[float]:
+    try:
+        if v is None or v == "":
+            return default
+        return float(v)
+    except:
+        return default
 
-        return {
-            "count": len(jobs_list),
-            "jobs": jobs_list
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error scraping jobs: {str(e)}")
+def _scrape_with_params(params: Dict[str, Any]) -> pd.DataFrame:
+    if scrape_jobs is None:
+        raise RuntimeError("jobspy is not installed. Please `pip install jobspy`.")
+    # Filter only known keys for jobspy; ignore Nones.
+    kwargs = {
+        "site_name": params.get("site_name"),
+        "search_term": params.get("search_term"),
+        "location": params.get("location") or None,
+        "distance": params.get("distance"),
+        "results_wanted": params.get("results_wanted") or DEFAULT_RESULTS,
+        "hours_old": params.get("hours_old"),
+        "job_type": params.get("job_type"),
+    }
+    # Remove None so jobspy doesn't get unexpected Nones
+    kwargs = {k: v for k, v in kwargs.items() if v not in (None, "", [])}
+    df = scrape_jobs(**kwargs)
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df or [])
+    # Normalize expected fields
+    for col in ["title","company","location","via","date_posted","job_type","salary","min_salary","max_salary","currency","description","job_url","url","apply_link","apply_url"]:
+        if col not in df.columns:
+            df[col] = None
+    # Derive a single apply_url
+    def _pick_url(row):
+        return row.get("apply_url") or row.get("apply_link") or row.get("job_url") or row.get("url")
+    if "apply_url" not in df.columns:
+        df["apply_url"] = None
+    df["apply_url"] = df.apply(lambda r: _pick_url(r), axis=1)
+    # Coerce date to string for template
+    if "date_posted" in df.columns:
+        try:
+            df["date_posted"] = pd.to_datetime(df["date_posted"]).dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return df
 
 
-@app.get("/api/v1/search_jobs")
-async def search_jobs_get(
-        site_name: Union[List[str], str] = Query("all", description="Job sites to search on"),
-        search_term: str = Query(None, description="Job search term"),
-        google_search_term: Optional[str] = Query(None, description="Search term for Google jobs"),
-        location: str = Query(None, description="Job location"),
-        distance: int = Query(50, description="Distance in miles"),
-        job_type: Optional[str] = Query(None, description="Job type (fulltime, parttime, internship, contract)"),
-        is_remote: Optional[bool] = Query(None, description="Remote job filter"),
-        results_wanted: int = Query(10, description="Number of results per site"),
-        hours_old: Optional[int] = Query(None, description="Filter by hours since posting"),
-        easy_apply: Optional[bool] = Query(None, description="Filter for easy apply jobs"),
-        description_format: str = Query("markdown", description="Format of job description"),
-        offset: int = Query(0, description="Offset for pagination"),
-        verbose: int = Query(2, description="Controls verbosity (0: errors only, 1: errors+warnings, 2: all logs)"),
-        linkedin_fetch_description: bool = Query(False, description="Fetch full LinkedIn descriptions"),
-        country_indeed: Optional[str] = Query(None, description="Country filter for Indeed & Glassdoor"),
-        enforce_annual_salary: bool = Query(False, description="Convert wages to annual salary"),
-        format: str = Query("json", description="Output format: json or csv"),
+def _parse_common_params(
+    site_name: Optional[List[str]] = None,
+    job_type: Optional[List[str]] = None,
+    search_term: Optional[str] = None,
+    location: Optional[str] = None,
+    results_wanted: Optional[int] = DEFAULT_RESULTS,
+    hours_old: Optional[int] = None,
+    distance: Optional[int] = None,
+    sort_by: Optional[str] = "date_posted",
 ):
-    # Handle site_name=all
-    if isinstance(site_name, str):
-        if site_name.lower() == "all":
-            site_name = SUPPORTED_SITES
-        else:
-            site_name = [site_name]
-    elif isinstance(site_name, list):
-        if "all" in [s.lower() for s in site_name]:
-            site_name = SUPPORTED_SITES
+    # Validate and sanitize
+    sites = [s for s in (site_name or SUPPORTED_SITES) if s in SUPPORTED_SITES]
+    types = [t for t in (job_type or []) if t in JOB_TYPES]
+    sort_by = sort_by if sort_by in ["date_posted", "title", "company", "salary"] else "date_posted"
+    return {
+        "site_name": sites or SUPPORTED_SITES,
+        "job_type": types or None,
+        "search_term": search_term or "",
+        "location": (location or "").strip(),
+        "results_wanted": results_wanted or DEFAULT_RESULTS,
+        "hours_old": hours_old,
+        "distance": distance,
+        "sort_by": sort_by,
+    }
 
-    # Use env default for country_indeed if not provided
-    if not country_indeed:
-        country_indeed = os.getenv("DEFAULT_COUNTRY_INDEED", "USA")
 
+# ---------- UI ROUTES ----------
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    # Default form values
+    ctx = dict(
+        request=request,
+        sites=SUPPORTED_SITES,
+        job_types=JOB_TYPES,
+        values=_parse_common_params(),
+        jobs=[],
+        count=0,
+        error=None,
+    )
+    return templates.TemplateResponse("index.html", ctx)
+
+
+@app.post("/search")
+async def search_jobs_endpoint(
+    request: Request,
+    site_name: Optional[List[str]] = Form(None),
+    job_type: Optional[List[str]] = Form(None),
+    search_term: str = Form(""),
+    location: str = Form(""),
+    distance: int = Form(50),
+    results_wanted: int = Form(20),
+    hours_old: Optional[int] = Form(None),
+    sort_by: Optional[str] = Form(None),
+):
     try:
-        jobs_df = scrape_jobs(
-            site_name=site_name,
-            search_term=search_term,
-            google_search_term=google_search_term,
-            location=location,
-            distance=distance,
-            job_type=job_type,
-            is_remote=is_remote,
-            results_wanted=results_wanted,
-            hours_old=hours_old,
-            easy_apply=easy_apply,
-            description_format=description_format,
-            offset=offset,
-            verbose=verbose,
-            linkedin_fetch_description=linkedin_fetch_description,
-            country_indeed=country_indeed,
-            enforce_annual_salary=enforce_annual_salary,
-        )
+        # Handle job_type multi-select: run once per type, then merge
+        all_jobs = []
+        job_types_to_search = job_type if job_type else [None]
 
-        # Convert DataFrame to dictionary format
-        jobs_data = jobs_df.to_dict('records')
+        for jt in job_types_to_search:
+            jobs_df = scrape_jobs(
+                site_name=site_name,
+                search_term=search_term,
+                location=location,
+                distance=distance,
+                results_wanted=results_wanted,
+                hours_old=hours_old,
+                job_type=jt,   # <-- one at a time
+            )
+            all_jobs.extend(jobs_df.to_dict("records"))
 
-        if format.lower() == "csv":
-            import io, csv
-            from fastapi.responses import StreamingResponse
-            if not jobs_data:
-                output = io.StringIO()
-                writer = csv.writer(output)
-                writer.writerow(["No results"])
-                output.seek(0)
-                return StreamingResponse(output, media_type="text/csv",
-                                         headers={"Content-Disposition": "attachment; filename=jobs.csv"})
+        # Deduplicate by job_url (if exists)
+        seen = set()
+        unique_jobs = []
+        for job in all_jobs:
+            url = job.get("job_url")
+            if url and url in seen:
+                continue
+            seen.add(url)
+            unique_jobs.append(job)
+
+        # Sorting
+        if sort_by:
+            if sort_by == "date":
+                unique_jobs.sort(key=lambda x: x.get("date_posted") or "", reverse=True)
+            elif sort_by == "title":
+                unique_jobs.sort(key=lambda x: x.get("title") or "")
+            elif sort_by == "company":
+                unique_jobs.sort(key=lambda x: x.get("company") or "")
+            elif sort_by == "salary":
+                unique_jobs.sort(key=lambda x: x.get("salary") or "", reverse=True)
+
+        for i in unique_jobs:
+            print(i)
+
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "jobs": unique_jobs,
+            "count": len(unique_jobs),
+            "search_term": search_term,
+            "location": location,
+        })
+
+    except Exception as e:
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "jobs": [],
+            "count": 0,
+            "error": str(e),
+        })
+
+
+
+# ---------- API ROUTES ----------
+class JobsQuery(BaseModel):
+    site_name: Optional[List[str]] = Field(default=None, description="List of job sites to search")
+    job_type: Optional[List[str]] = Field(default=None, description="List of job types")
+    search_term: Optional[str] = Field(default="", description="Search keywords")
+    location: Optional[str] = Field(default=None, description="Location to search")
+    results_wanted: Optional[int] = Field(default=DEFAULT_RESULTS, ge=1, le=1000)
+    hours_old: Optional[int] = Field(default=None, ge=1, description="Only jobs newer than X hours")
+    distance: Optional[int] = Field(default=None, ge=1, description="Radius search in km or miles, depends on site")
+
+@app.get("/api/jobs")
+async def api_get_jobs(
+    ok: bool = Depends(require_api_key),
+    site_name: Optional[List[str]] = Query(default=None),
+    job_type: Optional[List[str]] = Query(default=None),
+    search_term: Optional[str] = Query(default=""),
+    location: Optional[str] = Query(default=None),
+    results_wanted: Optional[int] = Query(default=DEFAULT_RESULTS, ge=1, le=1000),
+    hours_old: Optional[int] = Query(default=None, ge=1),
+    distance: Optional[int] = Query(default=None, ge=1),
+    format: Optional[str] = Query(default="json", regex="^(json|csv)$")
+):
+    params = _parse_common_params(site_name, job_type, search_term, location, results_wanted, hours_old, distance, "date_posted")
+    try:
+        df = _scrape_with_params(params)
+        if format == "csv":
             output = io.StringIO()
-            writer = csv.DictWriter(output, fieldnames=jobs_data[0].keys())
-            writer.writeheader()
-            writer.writerows(jobs_data)
+            df.to_csv(output, index=False)
             output.seek(0)
             return StreamingResponse(output, media_type="text/csv",
                                      headers={"Content-Disposition": "attachment; filename=jobs.csv"})
-        # Default: JSON
-        from fastapi.responses import JSONResponse
-        return JSONResponse(content={"count": len(jobs_data), "jobs": jobs_data})
+        # default json
+        return {"count": len(df), "jobs": df.to_dict(orient="records")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error scraping jobs: {str(e)}")
 
 
-# API key auth default logic (at app startup or dependency)
-ENABLE_API_KEY_AUTH = get_env_bool("ENABLE_API_KEY_AUTH", default=True)
-if not ENABLE_API_KEY_AUTH:
-    import warnings
-    warnings.warn("API key authentication is disabled. Set ENABLE_API_KEY_AUTH=true to enable.")
+@app.get("/export")
+async def export(
+    ok: bool = Depends(require_api_key) if ENABLE_API_KEY_AUTH else Depends(lambda: True),
+    site_name: Optional[List[str]] = Query(default=None),
+    job_type: Optional[List[str]] = Query(default=None),
+    search_term: Optional[str] = Query(default=""),
+    location: Optional[str] = Query(default=None),
+    results_wanted: Optional[int] = Query(default=DEFAULT_RESULTS),
+    hours_old: Optional[int] = Query(default=None),
+    distance: Optional[int] = Query(default=None),
+    format: Optional[str] = Query(default="csv", regex="^(csv|json)$"),
+):
+    params = _parse_common_params(site_name, job_type, search_term, location, results_wanted, hours_old, distance, "date_posted")
+    try:
+        df = _scrape_with_params(params)
+        if format == "json":
+            data = df.to_dict(orient="records")
+            return JSONResponse(content=data)
+        output = io.StringIO()
+        df.to_csv(output, index=False)
+        output.seek(0)
+        return StreamingResponse(output, media_type="text/csv",
+                                 headers={"Content-Disposition": "attachment; filename=jobs.csv"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exporting: {str(e)}")
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "ui": True, "api": True, "auth": ENABLE_API_KEY_AUTH}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=True)

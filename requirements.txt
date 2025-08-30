@@ -3,3 +3,5 @@ pydantic
 uvicorn
 python-jobspy
 pandas
+jinja2
+python-multipart
