@@ -142,25 +142,28 @@ def _parse_common_params(
         "distance": distance,
         "sort_by": sort_by,
     }
+
+#upcoming updates
+
 #summerize the job description
 
-def llmSummerize(htmlDesc: str) -> str:
-    prompt = f"""
-    Generate a job summery description using: {htmlDesc}
-
-    IMPORTANT: Respond with ONLY the job description. No additional text, explanations, or markdown formatting.
-    """
-    for i in range(3):
-        try:
-            gem_response = gemClient.models.generate_content(
-                model="gemini-2.5-flash", contents=prompt
-            )
-            gem_title = gem_response.text
-            break
-        except Exception as e:
-            gem_title = f"Gemini API failed: {str(e)}"
-
-    return gem_title
+# def llmSummerize(htmlDesc: str) -> str:
+#     prompt = f"""
+#     Generate a job summery description using: {htmlDesc}
+#
+#     IMPORTANT: Respond with ONLY the job description. No additional text, explanations, or markdown formatting.
+#     """
+#     for i in range(3):
+#         try:
+#             gem_response = gemClient.models.generate_content(
+#                 model="gemini-2.5-flash", contents=prompt
+#             )
+#             gem_title = gem_response.text
+#             break
+#         except Exception as e:
+#             gem_title = f"Gemini API failed: {str(e)}"
+#
+#     return gem_title
 
 
 # scrap linkedin...
@@ -178,8 +181,10 @@ def extract_description(unique_jobs):
             job_details = soup.find('div', class_='description__text description__text--rich')
 
             if job_details:
-                store = llmSummerize(job_details.prettify())
-                description.append(store)
+                #upcoming updates
+                # store = llmSummerize(job_details.prettify())
+                # description.append(store)
+                description.append(job_details.prettify())
             else:
                 description.append("Job details section not found. The page structure might have changed.")
             time.sleep(2)
