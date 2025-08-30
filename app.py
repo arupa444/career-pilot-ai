@@ -146,9 +146,9 @@ def _parse_common_params(
 
 def llmSummerize(htmlDesc: str) -> str:
     prompt = f"""
-    Generate a job description using: {htmlDesc}
+    Generate a job summery description using: {htmlDesc}
 
-    IMPORTANT: Respond with ONLY the job description. No additional text, explanations, or formatting.
+    IMPORTANT: Respond with ONLY the job description. No additional text, explanations, or markdown formatting.
     """
     for i in range(3):
         try:
