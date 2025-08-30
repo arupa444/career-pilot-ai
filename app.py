@@ -12,16 +12,30 @@ from bs4 import BeautifulSoup
 import requests
 import time
 
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-}
-# Optional: import when available; keep a clear error if not installed
+#to use google gemini api
+from google import genai
+
+#to extract the env keys
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(
     title="Career Pilot Ai",
     description="Beautiful, user-friendly UI and API on top of JobSpy job search",
     version="2.0.0",
 )
+
+
+gemClient = genai.Client(
+    api_key=os.getenv('gemAPI')
+)
+
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+}
+# Optional: import when available; keep a clear error if not installed
+
 
 # ---------- Config ----------
 SUPPORTED_SITES = ["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"]
