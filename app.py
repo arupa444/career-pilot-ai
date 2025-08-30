@@ -191,7 +191,8 @@ async def search_jobs_endpoint(
                 unique_jobs.sort(key=lambda x: x.get("salary") or "", reverse=True)
 
         for i in unique_jobs:
-            print(i)
+            if i['site'] == "linkedin":
+                print(i['description'])
 
         return templates.TemplateResponse("index.html", {
             "request": request,
