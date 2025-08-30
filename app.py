@@ -148,9 +148,7 @@ def extract_description(unique_jobs):
                 description.append("Job details section not found. The page structure might have changed.")
             time.sleep(2)
         else:
-            description.append("Job details section Can't be fetched. The page can't be accessable.")
-
-
+            description.append(f"Job details section Can't be fetched from {job["site"]}. The page can't be accessable.")
 
     return  description
 
