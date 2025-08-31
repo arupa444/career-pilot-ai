@@ -184,7 +184,7 @@ def extract_description(unique_jobs):
                 #upcoming updates
                 # store = llmSummerize(job_details.prettify())
                 # description.append(store)
-                description.append(job_details.prettify())
+                description.append(job_details.prettify()) #after upcoming comment this line
             else:
                 description.append("Job details section not found. The page structure might have changed.")
             time.sleep(2)
