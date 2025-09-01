@@ -12,6 +12,8 @@ from bs4 import BeautifulSoup
 import requests
 import time
 
+
+
 #to use google gemini api
 from google import genai
 
